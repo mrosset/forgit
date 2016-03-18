@@ -3,45 +3,66 @@ package main
 import (
 	"fmt"
 	"github.com/str1ngs/util/file"
-	"log"
+	"github.com/str1ngs/util/json"
+	glog "log"
 	"os"
 	"os/exec"
 	"time"
 )
 
-const (
-	FETCH_HEAD = ".git/FETCH_HEAD"
+type Expandable string
+
+func (e Expandable) String() string {
+	return expand((string)(e))
+}
+
+var (
+	repos  = []Expandable{"$GOPATH/src/github.com/str1ngs/forgit"}
+	log    = glog.New(os.Stderr, "", glog.Lshortfile)
+	expand = os.ExpandEnv
+	config = Expandable("$HOME/.repos.json")
 )
 
-func main() {
+func init() {
+	if !file.Exists(config.String()) {
+		log.Println("creating example config ", config)
+		err := json.Write(&repos, config.String())
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	if !file.Exists(".git") {
-		return
 	}
-
-	if file.Exists(".git") && !file.Exists(FETCH_HEAD) {
-		git_fetch()
-		return
-	}
-
-	stat, err := os.Stat(FETCH_HEAD)
+	log.Println("load config:", config)
+	err := json.Read(&repos, config.String())
 	if err != nil {
 		log.Fatal(err)
-	}
-	dur := time.Now().Sub(stat.ModTime())
-	if dur > time.Minute*5 {
-		fmt.Println("last fetch was ", dur)
-		git_fetch()
 	}
 }
 
-func git_fetch() {
+func main() {
+	fetch_all()
+	c := time.Tick(10 * time.Minute)
+	for _ = range c {
+		fetch_all()
+	}
+
+}
+
+func fetch_all() {
+	for _, r := range repos {
+		log.Println("fetching", r.String())
+		fetch(r.String())
+	}
+}
+
+func fetch(path string) {
 	fmt.Println("fetching...")
 	git := exec.Command("git", "fetch", "--all")
 	git.Stderr = os.Stderr
+	git.Dir = path
 	git.Stdout = os.Stdout
 	err := git.Run()
 	if err != nil {
-		log.Fatal(err)
+		log.Println("error: ", err)
 	}
 }
